@@ -1,0 +1,34 @@
+syntax = "proto3";
+
+package stats;
+
+option go_package = "carstats/proto;proto";
+
+service StatsService {
+  rpc SubmitUserStats(SubmitUserStatsRequest) returns (SubmitUserStatsResponse);
+  rpc GetGlobalStats(GetGlobalStatsRequest) returns (GetGlobalStatsResponse);
+}
+
+message SubmitUserStatsRequest {
+  string vehicle_type = 1;
+  double fuel_liters = 2;
+  double distance_km = 3;
+  string recorded_at = 4;
+}
+
+message SubmitUserStatsResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message GetGlobalStatsRequest {
+  string vehicle_type = 1;
+}
+
+message GetGlobalStatsResponse {
+  string vehicle_type = 1;
+  double total_fuel_liters = 2;
+  double total_distance_km = 3;
+  int64 total_records = 4;
+  double avg_fuel_per_km = 5;
+}

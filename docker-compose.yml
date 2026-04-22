@@ -1,0 +1,38 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: carstats-postgres
+    environment:
+      POSTGRES_DB: carstats
+      POSTGRES_USER: carstats
+      POSTGRES_PASSWORD: carstats
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U carstats -d carstats"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: carstats-app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://carstats:carstats@postgres:5432/carstats?sslmode=disable
+      GRPC_ADDR: :50051
+      AUTH_TOKEN_TTL: 24h
+      AGGREGATION_SCHEDULE: "@every 5m"
+    ports:
+      - "50051:50051"
+      - "8080:8080"
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
