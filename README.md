@@ -1,9 +1,8 @@
 # Carstats Server
 
-- `raw_vehicle_stats` — временное хранилище входящих записей
-- `vehicle_type_aggregates` — постоянный агрегат
-- cron-задача периодически переносит данные из `raw_vehicle_stats` в агрегат
-- при чтении статистики сервер учитывает и агрегированные данные, и ещё не перенесённые raw-записи
+- `user_vehicle_stats` — временное хранилище актуальной статистики: одна запись на пользователя
+- повторный `POST /v1/stats` от того же пользователя перезаписывает его запись
+- агрегаты для чтения считаются напрямую по актуальным пользовательским записям
 
 ## Запуск
 
@@ -46,13 +45,20 @@ curl -X POST http://localhost:8080/v1/auth/login \
 curl -X POST http://localhost:8080/v1/stats \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <token>" \
-  -d '{"vehicle_type":"sedan","fuel_liters":20.5,"distance_km":250,"recorded_at":"2026-04-21T10:30:00Z"}'
+  -d '{"vehicle_id":"uuid-123","brand":"Kia","model":"Rio","vehicle_type":"sedan","manual_avg_consumption_l_per_100km":8.2,"obd_avg_consumption_l_per_100km":8.6,"avg_refuel_liters":34.1,"avg_distance_between_refuels_km":410,"manual_records_count":5,"telemetry_samples_count":1861,"updated_at":"2026-04-24T19:00:00Z"}'
 ```
 
-Получение общей статистики:
+Получение общей статистики по модели:
 
 ```bash
-curl http://localhost:8080/v1/stats/{vehicle_type} \
+curl "http://localhost:8080/v1/stats/model?brand=Kia&model=Rio" \
+  -H "Authorization: Bearer <token>"
+```
+
+Получение общей статистики по типу:
+
+```bash
+curl "http://localhost:8080/v1/stats/type?vehicle_type=sedan" \
   -H "Authorization: Bearer <token>"
 ```
 

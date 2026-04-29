@@ -49,29 +49,29 @@ func InitSchema(ctx context.Context, pool *pgxpool.Pool) error {
 		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 	);
 
-	CREATE TABLE IF NOT EXISTS raw_vehicle_stats (
-		id BIGSERIAL PRIMARY KEY,
-		user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-		vehicle_type TEXT NOT NULL,
-		fuel_liters DOUBLE PRECISION NOT NULL CHECK (fuel_liters >= 0),
-		distance_km DOUBLE PRECISION NOT NULL CHECK (distance_km >= 0),
-		recorded_at TIMESTAMPTZ NOT NULL,
-		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-	);
-
-	CREATE INDEX IF NOT EXISTS idx_raw_vehicle_stats_vehicle_type
-		ON raw_vehicle_stats(vehicle_type);
-
 	CREATE INDEX IF NOT EXISTS idx_auth_tokens_user_id
 		ON auth_tokens(user_id);
 
-	CREATE TABLE IF NOT EXISTS vehicle_type_aggregates (
-		vehicle_type TEXT PRIMARY KEY,
-		total_fuel_liters DOUBLE PRECISION NOT NULL DEFAULT 0,
-		total_distance_km DOUBLE PRECISION NOT NULL DEFAULT 0,
-		total_records BIGINT NOT NULL DEFAULT 0,
+	CREATE TABLE IF NOT EXISTS user_vehicle_stats (
+		user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+		vehicle_id TEXT NOT NULL,
+		brand TEXT NOT NULL,
+		model TEXT NOT NULL,
+		vehicle_type TEXT NOT NULL,
+		manual_avg_consumption_l_per_100km DOUBLE PRECISION NOT NULL CHECK (manual_avg_consumption_l_per_100km >= 0),
+		obd_avg_consumption_l_per_100km DOUBLE PRECISION NOT NULL CHECK (obd_avg_consumption_l_per_100km >= 0),
+		avg_refuel_liters DOUBLE PRECISION NOT NULL CHECK (avg_refuel_liters >= 0),
+		avg_distance_between_refuels_km DOUBLE PRECISION NOT NULL CHECK (avg_distance_between_refuels_km >= 0),
+		manual_records_count BIGINT NOT NULL CHECK (manual_records_count >= 0),
+		telemetry_samples_count BIGINT NOT NULL CHECK (telemetry_samples_count >= 0),
 		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 	);
+
+	CREATE INDEX IF NOT EXISTS idx_user_vehicle_stats_brand_model
+		ON user_vehicle_stats(brand, model);
+
+	CREATE INDEX IF NOT EXISTS idx_user_vehicle_stats_vehicle_type
+		ON user_vehicle_stats(vehicle_type);
 	`
 
 	_, err := pool.Exec(ctx, query)

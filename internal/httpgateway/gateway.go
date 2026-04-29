@@ -78,10 +78,22 @@ func New(ctx context.Context, grpcAddr string) (*Server, error) {
 		return nil, err
 	}
 
-	if err := mux.HandlePath("GET", "/v1/stats/{vehicle_type}", func(w http.ResponseWriter, r *http.Request, pathParams map[string]string) {
+	if err := mux.HandlePath("GET", "/v1/stats/model", func(w http.ResponseWriter, r *http.Request, _ map[string]string) {
 		forwardJSONRPC(w, r, func(ctx context.Context) (proto.Message, error) {
 			return statsClient.GetGlobalStats(ctxWithAuthHeader(ctx, r), &pb.GetGlobalStatsRequest{
-				VehicleType: pathParams["vehicle_type"],
+				Brand: r.URL.Query().Get("brand"),
+				Model: r.URL.Query().Get("model"),
+			})
+		})
+	}); err != nil {
+		conn.Close()
+		return nil, err
+	}
+
+	if err := mux.HandlePath("GET", "/v1/stats/type", func(w http.ResponseWriter, r *http.Request, _ map[string]string) {
+		forwardJSONRPC(w, r, func(ctx context.Context) (proto.Message, error) {
+			return statsClient.GetGlobalStats(ctxWithAuthHeader(ctx, r), &pb.GetGlobalStatsRequest{
+				VehicleType: r.URL.Query().Get("vehicle_type"),
 			})
 		})
 	}); err != nil {
@@ -271,29 +283,37 @@ const openAPISpec = `{
       },
       "SubmitUserStatsRequest": {
         "type": "object",
-        "required": ["vehicle_type", "fuel_liters", "distance_km"],
+        "required": ["vehicle_id", "brand", "model", "vehicle_type", "manual_avg_consumption_l_per_100km", "obd_avg_consumption_l_per_100km", "avg_refuel_liters", "avg_distance_between_refuels_km", "manual_records_count", "telemetry_samples_count"],
         "properties": {
+          "vehicle_id": { "type": "string", "example": "uuid-123" },
+          "brand": { "type": "string", "example": "Kia" },
+          "model": { "type": "string", "example": "Rio" },
           "vehicle_type": { "type": "string", "example": "sedan" },
-          "fuel_liters": { "type": "number", "format": "double", "example": 20.5 },
-          "distance_km": { "type": "number", "format": "double", "example": 250 },
-          "recorded_at": { "type": "string", "example": "2026-04-21T10:30:00Z" }
+          "manual_avg_consumption_l_per_100km": { "type": "number", "format": "double", "example": 8.2 },
+          "obd_avg_consumption_l_per_100km": { "type": "number", "format": "double", "example": 8.6 },
+          "avg_refuel_liters": { "type": "number", "format": "double", "example": 34.1 },
+          "avg_distance_between_refuels_km": { "type": "number", "format": "double", "example": 410 },
+          "manual_records_count": { "type": "integer", "format": "int64", "example": 5 },
+          "telemetry_samples_count": { "type": "integer", "format": "int64", "example": 1861 },
+          "updated_at": { "type": "string", "example": "2026-04-24T19:00:00Z" }
         }
       },
       "SubmitUserStatsResponse": {
         "type": "object",
         "properties": {
           "success": { "type": "boolean", "example": true },
-          "message": { "type": "string", "example": "stat accepted into raw storage" }
+          "message": { "type": "string", "example": "user stats upserted" }
         }
       },
       "GetGlobalStatsResponse": {
         "type": "object",
         "properties": {
-          "vehicle_type": { "type": "string", "example": "sedan" },
-          "total_fuel_liters": { "type": "number", "format": "double", "example": 30.5 },
-          "total_distance_km": { "type": "number", "format": "double", "example": 350 },
-          "total_records": { "type": "integer", "format": "int64", "example": 2 },
-          "avg_fuel_per_km": { "type": "number", "format": "double", "example": 0.08714 }
+          "group_name": { "type": "string", "example": "Kia Rio" },
+          "manual_avg_consumption_l_per_100km": { "type": "number", "format": "double", "example": 8.1 },
+          "obd_avg_consumption_l_per_100km": { "type": "number", "format": "double", "example": 8.5 },
+          "avg_refuel_liters": { "type": "number", "format": "double", "example": 33.6 },
+          "avg_distance_between_refuels_km": { "type": "number", "format": "double", "example": 425 },
+          "vehicles_count": { "type": "integer", "format": "int64", "example": 27 }
         }
       },
       "Error": {
@@ -400,14 +420,52 @@ const openAPISpec = `{
         }
       }
     },
-    "/v1/stats/{vehicle_type}": {
+    "/v1/stats/model": {
+      "get": {
+        "summary": "Get aggregated stats by brand and model",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "brand",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Stats",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/GetGlobalStatsResponse" }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/stats/type": {
       "get": {
         "summary": "Get aggregated stats by vehicle type",
         "security": [{ "bearerAuth": [] }],
         "parameters": [
           {
             "name": "vehicle_type",
-            "in": "path",
+            "in": "query",
             "required": true,
             "schema": { "type": "string" }
           }

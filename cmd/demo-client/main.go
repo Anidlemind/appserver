@@ -38,7 +38,9 @@ func main() {
 	suffix := time.Now().UTC().Format("20060102150405.000000000")
 	email := "demo-" + strings.ReplaceAll(suffix, ".", "") + "@example.com"
 	password := "secret123"
-	vehicleType := "sedan-demo-" + strings.ReplaceAll(suffix, ".", "")
+	vehicleType := "sedan"
+	brand := "Kia"
+	model := "Rio-" + strings.ReplaceAll(suffix, ".", "")
 
 	fmt.Println("Register request:")
 	fmt.Printf("{email:%q, password:%q}\n", email, password)
@@ -73,21 +75,39 @@ func main() {
 	))
 
 	firstStat := &pb.SubmitUserStatsRequest{
-		VehicleType: vehicleType,
-		FuelLiters:  20.5,
-		DistanceKm:  250,
-		RecordedAt:  "2026-04-21T10:30:00Z",
+		VehicleId:                     "demo-vehicle-1",
+		Brand:                         brand,
+		Model:                         model,
+		VehicleType:                   vehicleType,
+		ManualAvgConsumptionLPer_100Km: 8.2,
+		ObdAvgConsumptionLPer_100Km:    8.6,
+		AvgRefuelLiters:               34.1,
+		AvgDistanceBetweenRefuelsKm:   410,
+		ManualRecordsCount:            5,
+		TelemetrySamplesCount:         1861,
+		UpdatedAt:                     "2026-04-24T19:00:00Z",
 	}
 
 	secondStat := &pb.SubmitUserStatsRequest{
-		VehicleType: vehicleType,
-		FuelLiters:  10,
-		DistanceKm:  100,
-		RecordedAt:  "2026-04-21T10:35:00Z",
+		VehicleId:                     "demo-vehicle-2",
+		Brand:                         brand,
+		Model:                         model,
+		VehicleType:                   vehicleType,
+		ManualAvgConsumptionLPer_100Km: 8.4,
+		ObdAvgConsumptionLPer_100Km:    8.7,
+		AvgRefuelLiters:               35.0,
+		AvgDistanceBetweenRefuelsKm:   420,
+		ManualRecordsCount:            6,
+		TelemetrySamplesCount:         2000,
+		UpdatedAt:                     "2026-04-24T20:00:00Z",
 	}
 
 	fmt.Println("SubmitUserStats request #1:")
-	fmt.Printf("{vehicle_type:%q, fuel_liters:%v, distance_km:%v, recorded_at:%q}\n", firstStat.GetVehicleType(), firstStat.GetFuelLiters(), firstStat.GetDistanceKm(), firstStat.GetRecordedAt())
+	fmt.Printf("{vehicle_id:%q, brand:%q, model:%q, vehicle_type:%q, manual_avg_consumption_l_per_100km:%v, obd_avg_consumption_l_per_100km:%v, avg_refuel_liters:%v, avg_distance_between_refuels_km:%v, manual_records_count:%d, telemetry_samples_count:%d, updated_at:%q}\n",
+		firstStat.GetVehicleId(), firstStat.GetBrand(), firstStat.GetModel(), firstStat.GetVehicleType(),
+		firstStat.GetManualAvgConsumptionLPer_100Km(), firstStat.GetObdAvgConsumptionLPer_100Km(),
+		firstStat.GetAvgRefuelLiters(), firstStat.GetAvgDistanceBetweenRefuelsKm(),
+		firstStat.GetManualRecordsCount(), firstStat.GetTelemetrySamplesCount(), firstStat.GetUpdatedAt())
 	submitResp, err := statsClient.SubmitUserStats(authCtx, firstStat)
 	if err != nil {
 		log.Fatalf("submit first stat: %v", err)
@@ -96,7 +116,11 @@ func main() {
 	fmt.Printf("{success:%t, message:%q}\n\n", submitResp.GetSuccess(), submitResp.GetMessage())
 
 	fmt.Println("SubmitUserStats request #2:")
-	fmt.Printf("{vehicle_type:%q, fuel_liters:%v, distance_km:%v, recorded_at:%q}\n", secondStat.GetVehicleType(), secondStat.GetFuelLiters(), secondStat.GetDistanceKm(), secondStat.GetRecordedAt())
+	fmt.Printf("{vehicle_id:%q, brand:%q, model:%q, vehicle_type:%q, manual_avg_consumption_l_per_100km:%v, obd_avg_consumption_l_per_100km:%v, avg_refuel_liters:%v, avg_distance_between_refuels_km:%v, manual_records_count:%d, telemetry_samples_count:%d, updated_at:%q}\n",
+		secondStat.GetVehicleId(), secondStat.GetBrand(), secondStat.GetModel(), secondStat.GetVehicleType(),
+		secondStat.GetManualAvgConsumptionLPer_100Km(), secondStat.GetObdAvgConsumptionLPer_100Km(),
+		secondStat.GetAvgRefuelLiters(), secondStat.GetAvgDistanceBetweenRefuelsKm(),
+		secondStat.GetManualRecordsCount(), secondStat.GetTelemetrySamplesCount(), secondStat.GetUpdatedAt())
 	submitResp, err = statsClient.SubmitUserStats(authCtx, secondStat)
 	if err != nil {
 		log.Fatalf("submit second stat: %v", err)
@@ -105,22 +129,24 @@ func main() {
 	fmt.Printf("{success:%t, message:%q}\n\n", submitResp.GetSuccess(), submitResp.GetMessage())
 
 	fmt.Println("GetGlobalStats request:")
-	fmt.Printf("{vehicle_type:%q}\n", vehicleType)
+	fmt.Printf("{brand:%q, model:%q}\n", brand, model)
 
 	statsResp, err := statsClient.GetGlobalStats(authCtx, &pb.GetGlobalStatsRequest{
-		VehicleType: vehicleType,
+		Brand: brand,
+		Model: model,
 	})
 	if err != nil {
 		log.Fatalf("get global stats: %v", err)
 	}
 
 	fmt.Println("GetGlobalStats response:")
-	fmt.Printf("{vehicle_type:%q, total_fuel_liters:%v, total_distance_km:%v, total_records:%d, avg_fuel_per_km:%v}\n",
-		statsResp.GetVehicleType(),
-		statsResp.GetTotalFuelLiters(),
-		statsResp.GetTotalDistanceKm(),
-		statsResp.GetTotalRecords(),
-		statsResp.GetAvgFuelPerKm(),
+	fmt.Printf("{group_name:%q, manual_avg_consumption_l_per_100km:%v, obd_avg_consumption_l_per_100km:%v, avg_refuel_liters:%v, avg_distance_between_refuels_km:%v, vehicles_count:%d}\n",
+		statsResp.GetGroupName(),
+		statsResp.GetManualAvgConsumptionLPer_100Km(),
+		statsResp.GetObdAvgConsumptionLPer_100Km(),
+		statsResp.GetAvgRefuelLiters(),
+		statsResp.GetAvgDistanceBetweenRefuelsKm(),
+		statsResp.GetVehiclesCount(),
 	)
 }
 
