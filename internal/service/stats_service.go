@@ -2,13 +2,14 @@ package service
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"time"
 
-	pb "carstats/proto"
+	"carstats/internal/aggregation"
 	"carstats/internal/sso"
+	pb "carstats/proto"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -33,9 +34,6 @@ func (s *StatsServer) SubmitUserStats(ctx context.Context, req *pb.SubmitUserSta
 	if strings.TrimSpace(req.Model) == "" {
 		return nil, status.Error(codes.InvalidArgument, "model is required")
 	}
-	if req.VehicleType == "" {
-		return nil, status.Error(codes.InvalidArgument, "vehicle_type is required")
-	}
 	if req.ManualAvgConsumptionLPer_100Km < 0 {
 		return nil, status.Error(codes.InvalidArgument, "manual_avg_consumption_l_per_100km must be non-negative")
 	}
@@ -58,6 +56,30 @@ func (s *StatsServer) SubmitUserStats(ctx context.Context, req *pb.SubmitUserSta
 	userID, ok := sso.UserIDFromContext(ctx)
 	if !ok {
 		return nil, status.Error(codes.Unauthenticated, "authenticated user is required")
+	}
+
+	newBrand := strings.TrimSpace(req.Brand)
+	newModel := strings.TrimSpace(req.Model)
+	newVehicleID := strings.TrimSpace(req.VehicleId)
+	newVehicleType := strings.TrimSpace(req.VehicleType)
+	if newVehicleType == "" {
+		return nil, status.Error(codes.InvalidArgument, "vehicle_type is required")
+	}
+
+	var previous struct {
+		brand       string
+		model       string
+		vehicleType string
+	}
+
+	err := s.db.QueryRow(
+		ctx,
+		`SELECT brand, model, vehicle_type FROM user_vehicle_stats WHERE user_id = $1 AND vehicle_id = $2`,
+		userID,
+		newVehicleID,
+	).Scan(&previous.brand, &previous.model, &previous.vehicleType)
+	if err != nil && err != pgx.ErrNoRows {
+		return nil, err
 	}
 
 	updatedAt := time.Now().UTC()
@@ -85,8 +107,7 @@ func (s *StatsServer) SubmitUserStats(ctx context.Context, req *pb.SubmitUserSta
 		updated_at
 	)
 	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-	ON CONFLICT (user_id) DO UPDATE SET
-		vehicle_id = EXCLUDED.vehicle_id,
+	ON CONFLICT (user_id, vehicle_id) DO UPDATE SET
 		brand = EXCLUDED.brand,
 		model = EXCLUDED.model,
 		vehicle_type = EXCLUDED.vehicle_type,
@@ -101,10 +122,10 @@ func (s *StatsServer) SubmitUserStats(ctx context.Context, req *pb.SubmitUserSta
 
 	_, err := s.db.Exec(ctx, query,
 		userID,
-		strings.TrimSpace(req.VehicleId),
-		strings.TrimSpace(req.Brand),
-		strings.TrimSpace(req.Model),
-		strings.TrimSpace(req.VehicleType),
+		newVehicleID,
+		newBrand,
+		newModel,
+		newVehicleType,
 		req.ManualAvgConsumptionLPer_100Km,
 		req.ObdAvgConsumptionLPer_100Km,
 		req.AvgRefuelLiters,
@@ -117,6 +138,18 @@ func (s *StatsServer) SubmitUserStats(ctx context.Context, req *pb.SubmitUserSta
 		return nil, err
 	}
 
+	aggregator := aggregation.NewAggregator(s.db)
+
+	if err := aggregator.RefreshGroup(ctx, newBrand, newModel, newVehicleType); err != nil {
+		return nil, err
+	}
+	if (previous.brand != "" || previous.model != "" || previous.vehicleType != "") &&
+		(previous.brand != newBrand || previous.model != newModel || previous.vehicleType != newVehicleType) {
+		if err := aggregator.RefreshGroup(ctx, previous.brand, previous.model, previous.vehicleType); err != nil {
+			return nil, err
+		}
+	}
+
 	return &pb.SubmitUserStatsResponse{
 		Success: true,
 		Message: "user stats upserted",
@@ -124,11 +157,7 @@ func (s *StatsServer) SubmitUserStats(ctx context.Context, req *pb.SubmitUserSta
 }
 
 func (s *StatsServer) GetGlobalStats(ctx context.Context, req *pb.GetGlobalStatsRequest) (*pb.GetGlobalStatsResponse, error) {
-	var (
-		groupName string
-		filterSQL string
-		args      []any
-	)
+	var stats aggregation.GlobalStats
 
 	brand := strings.TrimSpace(req.Brand)
 	model := strings.TrimSpace(req.Model)
@@ -139,54 +168,33 @@ func (s *StatsServer) GetGlobalStats(ctx context.Context, req *pb.GetGlobalStats
 		if brand == "" || model == "" {
 			return nil, status.Error(codes.InvalidArgument, "brand and model are required together")
 		}
-		groupName = fmt.Sprintf("%s %s", brand, model)
-		filterSQL = "brand = $1 AND model = $2"
-		args = []any{brand, model}
+		var err error
+		stats, err = aggregation.QueryByModel(ctx, s.db, brand, model)
+		if err != nil {
+			return nil, err
+		}
+		if stats.GroupName == "" {
+			stats.GroupName = brand + " " + model
+		}
 	case vehicleType != "":
-		groupName = vehicleType
-		filterSQL = "vehicle_type = $1"
-		args = []any{vehicleType}
+		var err error
+		stats, err = aggregation.QueryByVehicleType(ctx, s.db, vehicleType)
+		if err != nil {
+			return nil, err
+		}
+		if stats.GroupName == "" {
+			stats.GroupName = vehicleType
+		}
 	default:
 		return nil, status.Error(codes.InvalidArgument, "either brand/model or vehicle_type is required")
 	}
 
-	query := fmt.Sprintf(`
-	SELECT
-		COALESCE(SUM(manual_avg_consumption_l_per_100km * manual_records_count) / NULLIF(SUM(manual_records_count), 0), 0),
-		COALESCE(SUM(obd_avg_consumption_l_per_100km * telemetry_samples_count) / NULLIF(SUM(telemetry_samples_count), 0), 0),
-		COALESCE(AVG(avg_refuel_liters), 0),
-		COALESCE(AVG(avg_distance_between_refuels_km), 0),
-		COUNT(*)::BIGINT
-	FROM user_vehicle_stats
-	WHERE %s
-	`, filterSQL)
-
-	var (
-		manualAvg                    float64
-		obdAvg                       float64
-		avgRefuelLiters              float64
-		avgDistanceBetweenRefuelsKm  float64
-		vehiclesCount                int64
-	)
-
-	err := s.db.QueryRow(ctx, query, args...).Scan(
-		&manualAvg,
-		&obdAvg,
-		&avgRefuelLiters,
-		&avgDistanceBetweenRefuelsKm,
-		&vehiclesCount,
-	)
-
-	if err != nil {
-		return nil, err
-	}
-
 	return &pb.GetGlobalStatsResponse{
-		GroupName:                         groupName,
-		ManualAvgConsumptionLPer_100Km:   manualAvg,
-		ObdAvgConsumptionLPer_100Km:      obdAvg,
-		AvgRefuelLiters:                  avgRefuelLiters,
-		AvgDistanceBetweenRefuelsKm:      avgDistanceBetweenRefuelsKm,
-		VehiclesCount:                    vehiclesCount,
+		GroupName:                      stats.GroupName,
+		ManualAvgConsumptionLPer_100Km: stats.ManualAvg,
+		ObdAvgConsumptionLPer_100Km:    stats.ObdAvg,
+		AvgRefuelLiters:                stats.AvgRefuelLiters,
+		AvgDistanceBetweenRefuelsKm:    stats.AvgDistanceBetweenRefuelsKm,
+		VehiclesCount:                  stats.VehiclesCount,
 	}, nil
 }

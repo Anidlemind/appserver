@@ -5,13 +5,13 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 	"strings"
 	"time"
 
 	authpb "carstats/proto"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/crypto/bcrypt"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -41,19 +41,17 @@ func (s *Service) Register(ctx context.Context, req *authpb.RegisterRequest) (*a
 		return nil, status.Error(codes.InvalidArgument, "email and password are required")
 	}
 
-	salt, err := randomHex(16)
+	passwordHash, err := hashPassword(req.GetPassword())
 	if err != nil {
-		return nil, status.Error(codes.Internal, "cannot generate password salt")
+		return nil, status.Error(codes.Internal, "cannot hash password")
 	}
-
-	passwordHash := hashPassword(req.GetPassword(), salt)
 
 	var userID int64
 	err = s.db.QueryRow(ctx, `
 		INSERT INTO users (email, password_salt, password_hash)
 		VALUES ($1, $2, $3)
 		RETURNING id
-	`, email, salt, passwordHash).Scan(&userID)
+	`, email, "", passwordHash).Scan(&userID)
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +88,7 @@ func (s *Service) Login(ctx context.Context, req *authpb.LoginRequest) (*authpb.
 		return nil, status.Error(codes.Unauthenticated, "invalid credentials")
 	}
 
-	if hashPassword(req.GetPassword(), passwordSalt) != passwordHash {
+	if err := verifyPassword(req.GetPassword(), passwordHash, passwordSalt); err != nil {
 		return nil, status.Error(codes.Unauthenticated, "invalid credentials")
 	}
 
@@ -183,8 +181,34 @@ func extractBearerToken(md metadata.MD) (string, error) {
 	return strings.TrimSpace(parts[1]), nil
 }
 
-func hashPassword(password, salt string) string {
-	sum := sha256.Sum256([]byte(fmt.Sprintf("%s:%s", salt, password)))
+func hashPassword(password string) (string, error) {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return "", err
+	}
+	return string(hash), nil
+}
+
+func verifyPassword(password, passwordHash, passwordSalt string) error {
+	if strings.HasPrefix(passwordHash, "$2") {
+		return bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(password))
+	}
+
+	legacyHash := legacyHashPassword(password, passwordSalt)
+	if legacyHash != passwordHash {
+		return bcrypt.ErrMismatchedHashAndPassword
+	}
+
+	return nil
+}
+
+func legacyHashPassword(password, salt string) string {
+	sum := sha256SumHex(salt + ":" + password)
+	return sum
+}
+
+func sha256SumHex(value string) string {
+	sum := sha256.Sum256([]byte(value))
 	return hex.EncodeToString(sum[:])
 }
 

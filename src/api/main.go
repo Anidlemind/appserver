@@ -36,6 +36,10 @@ func main() {
 	statsService := service.NewStatsServer(pool)
 	aggregator := aggregation.NewAggregator(pool)
 
+	if err := aggregator.RefreshAll(context.Background()); err != nil {
+		log.Fatal(err)
+	}
+
 	c := cron.New()
 	if _, err := c.AddFunc(aggregationSchedule, aggregator.Run); err != nil {
 		log.Fatal(err)

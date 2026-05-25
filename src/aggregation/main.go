@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"os"
 
@@ -19,6 +20,10 @@ func main() {
 	defer pool.Close()
 
 	aggregator := aggregation.NewAggregator(pool)
+
+	if err := aggregator.RefreshAll(context.Background()); err != nil {
+		log.Fatal(err)
+	}
 
 	schedule := os.Getenv("AGGREGATION_SCHEDULE")
 	if schedule == "" {
