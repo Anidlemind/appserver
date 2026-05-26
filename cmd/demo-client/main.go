@@ -36,32 +36,29 @@ func main() {
 	statsClient := pb.NewStatsServiceClient(conn)
 
 	suffix := time.Now().UTC().Format("20060102150405.000000000")
-	email := "demo-" + strings.ReplaceAll(suffix, ".", "") + "@example.com"
-	password := "secret123"
+	uniqueID := "demo-" + strings.ReplaceAll(suffix, ".", "")
 	vehicleType := "sedan"
 	brand := "Kia"
 	model := "Rio-" + strings.ReplaceAll(suffix, ".", "")
 
 	fmt.Println("Register request:")
-	fmt.Printf("{email:%q, password:%q}\n", email, password)
+	fmt.Printf("{unique_id:%q}\n", uniqueID)
 
 	registerResp, err := authClient.Register(ctx, &pb.RegisterRequest{
-		Email:    email,
-		Password: password,
+		UniqueId: uniqueID,
 	})
 	if err != nil {
 		log.Fatalf("register: %v", err)
 	}
 
 	fmt.Println("Register response:")
-	fmt.Printf("{user_id:%d, token:%q}\n\n", registerResp.GetUserId(), registerResp.GetToken())
+	fmt.Printf("{token:%q}\n\n", registerResp.GetToken())
 
 	fmt.Println("Login request:")
-	fmt.Printf("{email:%q, password:%q}\n", email, password)
+	fmt.Printf("{unique_id:%q}\n", uniqueID)
 
 	loginResp, err := authClient.Login(ctx, &pb.LoginRequest{
-		Email:    email,
-		Password: password,
+		UniqueId: uniqueID,
 	})
 	if err != nil {
 		log.Fatalf("login: %v", err)

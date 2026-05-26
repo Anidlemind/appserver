@@ -38,32 +38,25 @@ func TestAuthAndStatsFlow(t *testing.T) {
 
 	suffix := time.Now().UTC().Format("20060102150405.000000000")
 	suffix = strings.ReplaceAll(suffix, ".", "")
-	email := "e2e-" + suffix + "@example.com"
-	password := "secret123"
+	uniqueID := "e2e-" + suffix
 	vehicleType := "sedan"
 	brand := "Kia"
 	model := "Rio-" + suffix
-	secondEmail := "e2e-second-" + suffix + "@example.com"
-	secondPassword := "secret456"
+	secondUniqueID := "e2e-second-" + suffix
 
 	registerResp, err := authClient.Register(ctx, &pb.RegisterRequest{
-		Email:    email,
-		Password: password,
+		UniqueId: uniqueID,
 	})
 	if err != nil {
 		t.Fatalf("register: %v", err)
 	}
 
-	if registerResp.GetUserId() == 0 {
-		t.Fatal("register returned empty user id")
-	}
 	if registerResp.GetToken() == "" {
 		t.Fatal("register returned empty token")
 	}
 
 	loginResp, err := authClient.Login(ctx, &pb.LoginRequest{
-		Email:    email,
-		Password: password,
+		UniqueId: uniqueID,
 	})
 	if err != nil {
 		t.Fatalf("login: %v", err)
@@ -112,8 +105,7 @@ func TestAuthAndStatsFlow(t *testing.T) {
 	}
 
 	secondRegisterResp, err := authClient.Register(ctx, &pb.RegisterRequest{
-		Email:    secondEmail,
-		Password: secondPassword,
+		UniqueId: secondUniqueID,
 	})
 	if err != nil {
 		t.Fatalf("second register: %v", err)
@@ -240,9 +232,9 @@ func TestStatsAggregationUsesLatestUserStateAndWeightedAverages(t *testing.T) {
 	model := "Corolla-" + suffix
 	vehicleType := "sedan-agg-" + suffix
 
-	authCtx1 := mustRegisterAndAuth(t, ctx, authClient, "agg1-"+suffix+"@example.com", "secret123")
-	authCtx2 := mustRegisterAndAuth(t, ctx, authClient, "agg2-"+suffix+"@example.com", "secret123")
-	authCtx3 := mustRegisterAndAuth(t, ctx, authClient, "agg3-"+suffix+"@example.com", "secret123")
+	authCtx1 := mustRegisterAndAuth(t, ctx, authClient, "agg1-"+suffix)
+	authCtx2 := mustRegisterAndAuth(t, ctx, authClient, "agg2-"+suffix)
+	authCtx3 := mustRegisterAndAuth(t, ctx, authClient, "agg3-"+suffix)
 
 	mustSubmitStats(t, authCtx1, statsClient, &pb.SubmitUserStatsRequest{
 		VehicleId:                      "agg-user-1-old",
@@ -338,18 +330,17 @@ func TestStatsAggregationUsesLatestUserStateAndWeightedAverages(t *testing.T) {
 	}
 }
 
-func mustRegisterAndAuth(t *testing.T, ctx context.Context, authClient pb.AuthClient, email, password string) context.Context {
+func mustRegisterAndAuth(t *testing.T, ctx context.Context, authClient pb.AuthClient, uniqueID string) context.Context {
 	t.Helper()
 
 	registerResp, err := authClient.Register(ctx, &pb.RegisterRequest{
-		Email:    email,
-		Password: password,
+		UniqueId: uniqueID,
 	})
 	if err != nil {
-		t.Fatalf("register %s: %v", email, err)
+		t.Fatalf("register %s: %v", uniqueID, err)
 	}
 	if registerResp.GetToken() == "" {
-		t.Fatalf("register %s returned empty token", email)
+		t.Fatalf("register %s returned empty token", uniqueID)
 	}
 
 	return metadata.NewOutgoingContext(ctx, metadata.Pairs(

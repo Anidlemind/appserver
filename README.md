@@ -30,7 +30,7 @@ make up
 ```bash
 curl -X POST http://localhost:8080/v1/auth/register \
   -H "Content-Type: application/json" \
-  -d '{"email":"user@example.com","password":"secret123"}'
+  -d '{"unique_id":"device-123"}'
 ```
 
 Логин:
@@ -38,7 +38,7 @@ curl -X POST http://localhost:8080/v1/auth/register \
 ```bash
 curl -X POST http://localhost:8080/v1/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"user@example.com","password":"secret123"}'
+  -d '{"unique_id":"device-123"}'
 ```
 
 Отправка статистики:
@@ -74,8 +74,8 @@ curl "http://localhost:8080/v1/stats/type?vehicle_type=sedan" \
 
 ## Примечания по реализации
 
-- пароли хранятся в виде bcrypt-хэша
-- для совместимости логин принимает как новые bcrypt-хэши, так и ранее сохраненные SHA-256 + salt
+- сервис хранит внешний `unique_id` пользователя и внутренний технический `user_id`
+- агрегированная статистика обезличена: в общих срезах используются только привязки к внутреннему `user_id`, без раскрытия внешнего идентификатора
 
 ## Быстрые команды
 

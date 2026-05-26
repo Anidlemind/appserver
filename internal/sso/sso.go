@@ -3,15 +3,15 @@ package sso
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"strings"
 	"time"
 
 	authpb "carstats/proto"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"golang.org/x/crypto/bcrypt"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -36,24 +36,22 @@ func New(db *pgxpool.Pool, tokenTTL time.Duration) *Service {
 }
 
 func (s *Service) Register(ctx context.Context, req *authpb.RegisterRequest) (*authpb.RegisterResponse, error) {
-	email := strings.TrimSpace(strings.ToLower(req.GetEmail()))
-	if email == "" || req.GetPassword() == "" {
-		return nil, status.Error(codes.InvalidArgument, "email and password are required")
-	}
-
-	passwordHash, err := hashPassword(req.GetPassword())
-	if err != nil {
-		return nil, status.Error(codes.Internal, "cannot hash password")
+	uniqueID := strings.TrimSpace(req.GetUniqueId())
+	if uniqueID == "" {
+		return nil, status.Error(codes.InvalidArgument, "unique_id is required")
 	}
 
 	var userID int64
-	err = s.db.QueryRow(ctx, `
-		INSERT INTO users (email, password_salt, password_hash)
-		VALUES ($1, $2, $3)
+	err := s.db.QueryRow(ctx, `
+		INSERT INTO users (external_id)
+		VALUES ($1)
 		RETURNING id
-	`, email, "", passwordHash).Scan(&userID)
+	`, uniqueID).Scan(&userID)
 	if err != nil {
-		return nil, err
+		if isUniqueViolation(err) {
+			return nil, status.Error(codes.AlreadyExists, "unique_id is already registered")
+		}
+		return nil, status.Error(codes.Internal, "cannot register unique_id")
 	}
 
 	token, err := s.issueToken(ctx, userID)
@@ -61,35 +59,24 @@ func (s *Service) Register(ctx context.Context, req *authpb.RegisterRequest) (*a
 		return nil, err
 	}
 
-	return &authpb.RegisterResponse{
-		UserId: userID,
-		Token:  token,
-	}, nil
+	return &authpb.RegisterResponse{Token: token}, nil
 }
 
 func (s *Service) Login(ctx context.Context, req *authpb.LoginRequest) (*authpb.LoginResponse, error) {
-	email := strings.TrimSpace(strings.ToLower(req.GetEmail()))
-	if email == "" || req.GetPassword() == "" {
-		return nil, status.Error(codes.InvalidArgument, "email and password are required")
+	uniqueID := strings.TrimSpace(req.GetUniqueId())
+	if uniqueID == "" {
+		return nil, status.Error(codes.InvalidArgument, "unique_id is required")
 	}
 
-	var (
-		userID       int64
-		passwordSalt string
-		passwordHash string
-	)
+	var userID int64
 
 	err := s.db.QueryRow(ctx, `
-		SELECT id, password_salt, password_hash
+		SELECT id
 		FROM users
-		WHERE email = $1
-	`, email).Scan(&userID, &passwordSalt, &passwordHash)
+		WHERE external_id = $1
+	`, uniqueID).Scan(&userID)
 	if err != nil {
-		return nil, status.Error(codes.Unauthenticated, "invalid credentials")
-	}
-
-	if err := verifyPassword(req.GetPassword(), passwordHash, passwordSalt); err != nil {
-		return nil, status.Error(codes.Unauthenticated, "invalid credentials")
+		return nil, status.Error(codes.Unauthenticated, "unknown unique_id")
 	}
 
 	token, err := s.issueToken(ctx, userID)
@@ -181,41 +168,15 @@ func extractBearerToken(md metadata.MD) (string, error) {
 	return strings.TrimSpace(parts[1]), nil
 }
 
-func hashPassword(password string) (string, error) {
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	if err != nil {
-		return "", err
-	}
-	return string(hash), nil
-}
-
-func verifyPassword(password, passwordHash, passwordSalt string) error {
-	if strings.HasPrefix(passwordHash, "$2") {
-		return bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(password))
-	}
-
-	legacyHash := legacyHashPassword(password, passwordSalt)
-	if legacyHash != passwordHash {
-		return bcrypt.ErrMismatchedHashAndPassword
-	}
-
-	return nil
-}
-
-func legacyHashPassword(password, salt string) string {
-	sum := sha256SumHex(salt + ":" + password)
-	return sum
-}
-
-func sha256SumHex(value string) string {
-	sum := sha256.Sum256([]byte(value))
-	return hex.EncodeToString(sum[:])
-}
-
 func randomHex(size int) (string, error) {
 	buf := make([]byte, size)
 	if _, err := rand.Read(buf); err != nil {
 		return "", err
 	}
 	return hex.EncodeToString(buf), nil
+}
+
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
 }

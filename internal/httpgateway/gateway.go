@@ -254,25 +254,22 @@ const openAPISpec = `{
     "schemas": {
       "RegisterRequest": {
         "type": "object",
-        "required": ["email", "password"],
+        "required": ["unique_id"],
         "properties": {
-          "email": { "type": "string", "example": "user@example.com" },
-          "password": { "type": "string", "example": "secret123" }
+          "unique_id": { "type": "string", "example": "device-123" }
         }
       },
       "RegisterResponse": {
         "type": "object",
         "properties": {
-          "user_id": { "type": "integer", "format": "int64", "example": 1 },
           "token": { "type": "string", "example": "token" }
         }
       },
       "LoginRequest": {
         "type": "object",
-        "required": ["email", "password"],
+        "required": ["unique_id"],
         "properties": {
-          "email": { "type": "string", "example": "user@example.com" },
-          "password": { "type": "string", "example": "secret123" }
+          "unique_id": { "type": "string", "example": "device-123" }
         }
       },
       "LoginResponse": {
@@ -328,7 +325,7 @@ const openAPISpec = `{
   "paths": {
     "/v1/auth/register": {
       "post": {
-        "summary": "Register user",
+        "summary": "Register unique user id",
         "requestBody": {
           "required": true,
           "content": {
@@ -353,13 +350,21 @@ const openAPISpec = `{
                 "schema": { "$ref": "#/components/schemas/Error" }
               }
             }
+          },
+          "409": {
+            "description": "unique_id already registered",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
           }
         }
       }
     },
     "/v1/auth/login": {
       "post": {
-        "summary": "Login user",
+        "summary": "Login by registered unique user id",
         "requestBody": {
           "required": true,
           "content": {
@@ -378,7 +383,7 @@ const openAPISpec = `{
             }
           },
           "401": {
-            "description": "Invalid credentials",
+            "description": "Unknown unique_id",
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/Error" }
